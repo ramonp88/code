@@ -17,7 +17,6 @@
 
 #include <Eigen/Dense>
 
-#define K_FOLD 1
 #define DELIM ','
 #define V_QUADRATIC_ERROR 1e-20
 #define DAMPING_FACTOR 0.8
@@ -32,6 +31,8 @@
 
 using namespace std;
 using namespace Eigen;
+
+unsigned int K_FOLD;
 
 struct Item {
 	Item() :
@@ -88,7 +89,7 @@ map<unsigned int, unsigned int> rItemIds;
 
 map<unsigned int, unsigned int>::iterator it;
 
-vector<unsigned int> k_count(K_FOLD, 0);
+vector<unsigned int> k_count;
 
 struct Gen {
 	Gen() :
@@ -101,7 +102,7 @@ struct Gen {
 
 	void fill() {
 		n = K_FOLD;
-		for (int i = 0; i < K_FOLD; ++i)
+		for (unsigned int i = 0; i < K_FOLD; ++i)
 			v[i] = i;
 	}
 
@@ -370,10 +371,11 @@ void make_matrix_intersection(MatrixXf &m, const unsigned int N) {
 					}
 				}
 
-
 				float ratio = ((float) countUps) / (v.size() + 1);
-				cout << i->id << " " << j->id << " " << v.size() << " " << ratio << endl;
-				m(j->id, i->id) = m(i->id, j->id) = ratio * sigmoid(i_ratio / j_ratio);
+//				cout << i->id << " " << j->id << " " << v.size() << " "
+//						<< ratio << endl;
+				m(j->id, i->id) = m(i->id, j->id) = ratio
+						* sigmoid(i_ratio / j_ratio);
 			}
 
 		}
@@ -468,7 +470,7 @@ void kfold() {
 
 	float macroDOA[3][K_FOLD];
 
-	for (int k = 0; k < K_FOLD; ++k) {
+	for (unsigned int k = 0; k < K_FOLD; ++k) {
 		cout << "####K=" << k << endl;
 
 		map<unsigned int, vector<Review*>> test; // key is  real user id in dataset
@@ -526,20 +528,20 @@ void kfold() {
 			sort(p->users.begin(), p->users.end());
 		}
 
-		//#pragma omp parallel sections
+#pragma omp parallel sections
 		{
 			{
-				//macroDOA[0][k] = run_random(test, CLIQUE_STRATEGY);
+				macroDOA[0][k] = run_random(test, CLIQUE_STRATEGY);
 
 			}
-			//#pragma omp section
+#pragma omp section
 			{
 				macroDOA[1][k] = run_random(test, INTESECTION_STRATEGY);
 			}
 
-			//#pragma omp section
+#pragma omp section
 			{
-				//macroDOA[2][k] = run_gori(test);
+				macroDOA[2][k] = run_gori(test);
 			}
 		}
 		cout << macroDOA[0][k] << "\t" << macroDOA[1][k] << "\t"
@@ -550,6 +552,9 @@ void kfold() {
 
 int main(int argc, char **argv) {
 	srand(0);
+
+	K_FOLD = atoi(argv[2]);
+	k_count.resize(K_FOLD, 0);
 
 	read_data(argv[1]);
 
