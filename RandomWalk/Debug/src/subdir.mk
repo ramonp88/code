@@ -20,14 +20,14 @@ CPP_DEPS += \
 src/Copy\ of\ Main.o: ../src/Copy\ of\ Main.cpp
 	@echo 'Building file: $<'
 	@echo 'Invoking: GCC C++ Compiler'
-	g++ -I/home/ramon/MEGAsync/prodgraph/code/RandomWalk/lib/eigen -O3 -g3 -Wall -c -fmessage-length=0 -std=c++11 -fopenmp -MMD -MP -MF"src/Copy of Main.d" -MT"src/Copy\ of\ Main.d" -o"$@" "$<"
+	g++ -I/home/ramon/MEGAsync/prodgraph/code/RandomWalk/lib/eigen -O3 -Wall -c -fmessage-length=0 -std=c++11 -fopenmp -MMD -MP -MF"src/Copy of Main.d" -MT"src/Copy\ of\ Main.d" -o"$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
 src/%.o: ../src/%.cpp
 	@echo 'Building file: $<'
 	@echo 'Invoking: GCC C++ Compiler'
-	g++ -I/home/ramon/MEGAsync/prodgraph/code/RandomWalk/lib/eigen -O3 -g3 -Wall -c -fmessage-length=0 -std=c++11 -fopenmp -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o"$@" "$<"
+	g++ -I/home/ramon/MEGAsync/prodgraph/code/RandomWalk/lib/eigen -O3 -Wall -c -fmessage-length=0 -std=c++11 -fopenmp -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o"$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

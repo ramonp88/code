@@ -25,7 +25,10 @@
 #define BETA_beta 1.0
 
 #define CLIQUE_STRATEGY 1
-#define INTESECTION_STRATEGY 2
+#define INTERSECTION_STRATEGY 2
+
+#define RANDOM_ALGORITHM 1
+#define GORI_ALGORITHM 2
 
 #define sigmoid(x) (1/(1+exp(-x)))
 
@@ -372,8 +375,8 @@ void make_matrix_intersection(MatrixXf &m, const unsigned int N) {
 				}
 
 				float ratio = ((float) countUps) / (v.size() + 1);
-//				cout << i->id << " " << j->id << " " << v.size() << " "
-//						<< ratio << endl;
+				//				cout << i->id << " " << j->id << " " << v.size() << " "
+				//						<< ratio << endl;
 				m(j->id, i->id) = m(i->id, j->id) = ratio
 						* sigmoid(i_ratio / j_ratio);
 			}
@@ -428,7 +431,7 @@ float run_random(map<unsigned int, vector<Review*>> &test, int strategy) {
 	MatrixXf m = MatrixXf::Zero(N, N);
 
 	switch (strategy) {
-	case INTESECTION_STRATEGY:
+	case INTERSECTION_STRATEGY:
 		make_matrix_intersection(m, N);
 		break;
 	case CLIQUE_STRATEGY:
@@ -466,7 +469,7 @@ void clear() {
 
 }
 
-void kfold() {
+void kfold(char algorithm, char strategy = 0) {
 
 	float macroDOA[3][K_FOLD];
 
@@ -528,37 +531,71 @@ void kfold() {
 			sort(p->users.begin(), p->users.end());
 		}
 
-#pragma omp parallel sections
-		{
-			{
-				macroDOA[0][k] = run_random(test, CLIQUE_STRATEGY);
-
-			}
-#pragma omp section
-			{
-				macroDOA[1][k] = run_random(test, INTESECTION_STRATEGY);
-			}
-
-#pragma omp section
-			{
-				macroDOA[2][k] = run_gori(test);
+		switch (algorithm) {
+		case GORI_ALGORITHM:
+			cout << run_gori(test) << endl;
+			break;
+		case RANDOM_ALGORITHM:
+			switch (strategy) {
+			case CLIQUE_STRATEGY:
+				cout << run_random(test, CLIQUE_STRATEGY) << endl;
+				break;
+			case INTERSECTION_STRATEGY:
+				cout << run_random(test, INTERSECTION_STRATEGY) << endl;
 			}
 		}
-		cout << macroDOA[0][k] << "\t" << macroDOA[1][k] << "\t"
-				<< macroDOA[1][k] << endl;
+
+		//#pragma omp parallel sections
+		//		{
+		//			{
+		//				macroDOA[0][k] = run_random(test, CLIQUE_STRATEGY);
+		//
+		//			}
+		//#pragma omp section
+		//			{
+		//				macroDOA[1][k] = run_random(test, INTERSECTION_STRATEGY);
+		//			}
+		//
+		//#pragma omp section
+		//			{
+		//				macroDOA[2][k] = run_gori(test);
+		//			}
+		//		}
+		//		cout << macroDOA[0][k] << "\t" << macroDOA[1][k] << "\t"
+		//				<< macroDOA[1][k] << endl;
 	}
 	clear();
 }
 
+/*
+ * 1- filename
+ * 2- number of folds of k-fold
+ * 3- algorithm to run
+ * 4- strategy chosen to run random-walk
+ */
+
 int main(int argc, char **argv) {
 	srand(0);
 
+	char* filename = argv[1];
 	K_FOLD = atoi(argv[2]);
+	int algorithm = atoi(argv[3]);
+	int strategy = atoi(argv[4]);
+
 	k_count.resize(K_FOLD, 0);
 
-	read_data(argv[1]);
+	read_data(filename);
 
-	kfold();
+	switch (algorithm) {
+	case GORI_ALGORITHM:
+		kfold(GORI_ALGORITHM, strategy);
+		break;
+	case RANDOM_ALGORITHM:
+		kfold(RANDOM_ALGORITHM, strategy);
+		break;
+	default:
+		cout << "error" << endl;
+	}
 
 	return 0;
 }
