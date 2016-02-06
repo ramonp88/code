@@ -18,6 +18,7 @@
 #include <Eigen/Dense>
 
 #define DELIM ','
+#define EPS 1e-8
 #define V_QUADRATIC_ERROR 1e-20
 #define DAMPING_FACTOR 0.8
 
@@ -26,6 +27,10 @@
 
 #define CLIQUE_STRATEGY 1
 #define INTERSECTION_STRATEGY 2
+#define GORI_STRATEGY 3
+
+#define BAYESIAN_d 1
+#define GORI_d 2
 
 #define RANDOM_ALGORITHM 1
 #define GORI_ALGORITHM 2
@@ -124,6 +129,86 @@ struct Gen {
 };
 typedef struct Gen Gen;
 
+int cmp(double x, double y, double tol = 1e-19) {
+	return (x <= y + tol) ? (x + tol < y) ? -1 : 0 : 1;
+}
+
+// returns the intersection elements between two ordered vectors
+vector<int> take_intersection(vector<int> &x, vector<int> &y) {
+	unsigned int i = 0, j = 0;
+	vector<int> intersection;
+
+	while (i < x.size() && j < y.size()) {
+		if (x[i] < y[j])
+			i++;
+		else if (y[j] < x[i])
+			j++;
+		else {
+			intersection.push_back(x[i]);
+			++i;
+			++j;
+		}
+	}
+	return intersection;
+}
+
+
+void read_data2(const char* filename) {
+
+	Gen generator;
+
+	ifstream file(filename);
+	string line;
+
+	unsigned int userId;
+	unsigned int itemId;
+	float rating;
+
+	getline(file, line); // reading header
+
+
+	map<unsigned int, vector<int>  > m;
+	vector<unsigned int> movies;
+
+	while (getline(file, line)) {
+		stringstream ss(line);
+		string tok;
+
+		getline(ss, tok, DELIM);
+		userId = atoi(tok.c_str());
+
+		getline(ss, tok, DELIM);
+		itemId = atoi(tok.c_str());
+
+		getline(ss, tok, DELIM);
+		rating = atof(tok.c_str());
+
+
+		m[itemId].push_back(userId);
+
+		movies.push_back(itemId);
+	}
+
+	for(size_t i=0; i < movies.size(); ++i){
+		unsigned int id = movies[i];
+		sort(m[id].begin(), m[id].end());
+	}
+
+	for(size_t i=0; i < movies.size(); ++i){
+		unsigned int iId = movies[i];
+
+		for(size_t j=i+1; j < movies.size(); ++j){
+			unsigned int jId = movies[j];
+			if(take_intersection(m[iId], m[jId]).size() > 0){
+				cout << iId << "," << jId << endl;
+			}
+		}
+	}
+
+
+}
+
+
 void read_data(const char* filename) {
 
 	Gen generator;
@@ -167,7 +252,7 @@ void read_data(const char* filename) {
 }
 
 // makes columns to sum one
-void make_stochastic(MatrixXf & m) {
+void make_stochastic(MatrixXd & m) {
 	const unsigned int N = items.size();
 	for (unsigned int j = 0; j < N; ++j) {
 		double sum = 0;
@@ -180,24 +265,7 @@ void make_stochastic(MatrixXf & m) {
 	}
 }
 
-// returns the intersection elements between two vectors
-vector<int> take_intersection(vector<int> &x, vector<int> &y) {
-	unsigned int i = 0, j = 0;
-	vector<int> intersection;
 
-	while (i < x.size() && j < y.size()) {
-		if (x[i] < y[j])
-			i++;
-		else if (y[j] < x[i])
-			j++;
-		else {
-			intersection.push_back(x[i]);
-			++i;
-			++j;
-		}
-	}
-	return intersection;
-}
 
 // scales user rating so that 1 if above user average or 0 otherwise
 void scaleRating(User *u) {
@@ -212,7 +280,7 @@ void scaleRating(User *u) {
 	}
 }
 
-float doa(const User *u, const vector<Review*> &test, const VectorXf & rank) {
+float doa(const User *u, const vector<Review*> &test, const VectorXd & rank) {
 	int nw = 0;
 	int count = 0;
 
@@ -223,11 +291,12 @@ float doa(const User *u, const vector<Review*> &test, const VectorXf & rank) {
 		if (u->items.find(k) != u->items.end())
 			continue;
 
+		// since item in test set is not in training set
 		nw++;
 
 		for (size_t a = 0; a < test.size(); ++a) {
 			unsigned int j = itemIds[test[a]->itemId];
-			if (rank(j) >= rank(k)) {
+			if (cmp(rank(j), rank(k), EPS) >= 0) {
 				count++;
 			}
 		}
@@ -235,15 +304,13 @@ float doa(const User *u, const vector<Review*> &test, const VectorXf & rank) {
 	return ((float) count) / (test.size() * nw);
 }
 
-VectorXf gori_pucci(MatrixXf &m, int userId) {
+VectorXd gori_pucci(MatrixXd &m, User *u) {
 
 	//cout << "** gori_pucci \t" << userId << endl;
 	const unsigned int N = items.size();
 
-	User *u = users[userId];
-
 	// creating vector d
-	VectorXf d = VectorXf::Zero(N);
+	VectorXd d = VectorXd::Zero(N);
 	double sum = 0.0;
 	for (unsigned int i = 0; i < u->ratings.size(); ++i) {
 
@@ -255,27 +322,20 @@ VectorXf gori_pucci(MatrixXf &m, int userId) {
 
 
 	// random walk
-	VectorXf last_v;
-	VectorXf v = (1.0 / N) * VectorXf::Ones(N);
+	VectorXd last_v;
+	VectorXd v = (1.0 / N) * VectorXd::Ones(N);
 
 	float norm2 = 0.0;
 	do {
 		last_v = v;
 		v = DAMPING_FACTOR * m * v + (1 - DAMPING_FACTOR) * d;
 		norm2 = (v - last_v).squaredNorm();
-		//		cout  << setprecision(20) << norm2 << endl;
-	} while (norm2 > V_QUADRATIC_ERROR);
+	} while (cmp(norm2, 0, V_QUADRATIC_ERROR) > 0);
 
 	return v;
 }
 
-float run_gori(map<unsigned int, vector<Review*>> &test) {
-
-	// creating matrix
-	const unsigned int N = items.size();
-
-	MatrixXf m = MatrixXf::Zero(N, N);
-
+void make_matrix_gori(MatrixXd &m, const unsigned int N) {
 	// creating transition matrix
 	for (size_t a = 0; a < N; ++a) {
 		Item *i = items[a];
@@ -289,21 +349,31 @@ float run_gori(map<unsigned int, vector<Review*>> &test) {
 
 		}
 	}
+}
+
+float run_gori(map<unsigned int, vector<Review*>> &test) {
+
+	// creating matrix
+	const unsigned int N = items.size();
+
+	MatrixXd m = MatrixXd::Zero(N, N);
+
+	make_matrix_gori(m, N);
 	make_stochastic(m);
 
-	float macroDOA = 0;
+	double macroDOA = 0;
 	map<unsigned int, vector<Review*>>::iterator it;
 	for (it = test.begin(); it != test.end(); ++it) {
 		User *u = users[userIds[it->first]];
 
-		VectorXf rank = gori_pucci(m, u->id);
+		VectorXd rank = gori_pucci(m, u);
 
 		macroDOA += doa(u, it->second, rank);
 	}
 	return macroDOA / users.size();
 }
 
-bool check_d(User *u, MatrixXf &m, unsigned itemId) {
+bool check_d(User *u, MatrixXd &m, unsigned itemId) {
 
 	// if item is in user's list
 	if (u->items.find(itemId) != u->items.end())
@@ -319,41 +389,75 @@ bool check_d(User *u, MatrixXf &m, unsigned itemId) {
 	return false;
 }
 
-VectorXf random_walk(MatrixXf &m, User* u) {
+VectorXd random_walk(MatrixXd &m, User* u, int strategy_d) {
 
 	const unsigned int N = items.size();
 
-	VectorXf d = VectorXf::Zero(N);
+	VectorXd d = VectorXd::Zero(N);
 	double sum = 0.0;
 
-	for (unsigned int i = 0; i < N; ++i) {
-		Item *p = items[i];
+	switch (strategy_d) {
+	case GORI_d:
+		// GORI
+		for (unsigned int i = 0; i < u->ratings.size(); ++i) {
 
-		if (check_d(u, m, p->id)) {
-			// bayesian trust
+			unsigned int itemId = u->ratings[i]->itemId;
+			d(itemId) = u->ratings[i]->rating;
+			sum += d(itemId);
+		}
+		d /= sum; //making stochastic
+		break;
+	case BAYESIAN_d:
+		//BAYESIAN
+		for (unsigned int i = 0; i < u->ratings.size(); ++i) {
+
+			unsigned int itemId = u->ratings[i]->itemId;
+			Item *p = items[itemId];
 			d(p->id) = (BETA_alpha + p->nUps + 1) / (BETA_alpha + BETA_beta
 					+ p->nRatings + 1);
 			sum += d(p->id);
 		}
+
+		d /= sum;
+		break;
+	default:
+		cout << "Error \t strategy-d" << endl;
+		exit(0);
 	}
-	d /= sum;
+	/*for (unsigned int i = 0; i < N; ++i) {
+	 Item *p = items[i];
+
+	 if (check_d(u, m, p->id)) {
+	 // bayesian trust
+	 d(p->id) = (BETA_alpha + p->nUps + 1) / (BETA_alpha + BETA_beta
+	 + p->nRatings + 1);
+	 sum += d(p->id);
+	 }
+	 }*/
 
 	// ###### RANDOM WALK
-	VectorXf last_v;
-	VectorXf v = (1.0 / N) * VectorXf::Ones(N);
+	VectorXd last_v;
+	//VectorXd v = (1.0 / N) * VectorXd::Ones(N);
 
-	float norm2 = 0.0;
+	// teste
+	VectorXd v = VectorXd::Zero(N);
+	for (unsigned int i = 0; i < u->ratings.size(); ++i) {
+		unsigned int itemId = u->ratings[i]->itemId;
+		v(itemId) = 1;
+	}
+	v = (1.0/u->ratings.size())*v;
+
+	double norm2 = 0.0;
 	do {
 		last_v = v;
 		v = DAMPING_FACTOR * m * v + (1 - DAMPING_FACTOR) * d;
 		norm2 = (v - last_v).squaredNorm();
-		//cout << setprecision(20) << norm2 << endl;
-	} while (norm2 > V_QUADRATIC_ERROR);
+	} while (cmp(norm2, 0, V_QUADRATIC_ERROR) > 0);
 
 	return v;
 }
 
-void make_matrix_intersection(MatrixXf &m, const unsigned int N) {
+void make_matrix_intersection(MatrixXd &m, const unsigned int N) {
 	for (size_t a = 0; a < N; ++a) {
 		Item *i = items[a];
 		for (size_t b = a + 1; b < N; ++b) {
@@ -369,7 +473,7 @@ void make_matrix_intersection(MatrixXf &m, const unsigned int N) {
 				int countUps = 1;
 				for (vector<int>::iterator it = v.begin(); it != v.end(); it++) {
 					if (i->usersUp.find(*it) != i->usersUp.end()
-							&& j->usersUp.find(*it) != i->usersUp.end()) {
+							&& j->usersUp.find(*it) != j->usersUp.end()) {
 						countUps++;
 					}
 				}
@@ -385,7 +489,7 @@ void make_matrix_intersection(MatrixXf &m, const unsigned int N) {
 	}
 }
 
-void make_matrix_clique(MatrixXf &m, const unsigned int N) {
+void make_matrix_clique(MatrixXd &m, const unsigned int N) {
 	for (size_t k = 0; k < users.size(); ++k) {
 		for (size_t a = 0; a < users[k]->ratings.size(); ++a) {
 			for (size_t b = a + 1; b < users[k]->ratings.size(); ++b) {
@@ -406,7 +510,8 @@ void make_matrix_clique(MatrixXf &m, const unsigned int N) {
 	}
 }
 
-float run_random(map<unsigned int, vector<Review*>> &test, int strategy) {
+float run_random(map<unsigned int, vector<Review*>> &test, int strategy,
+		int strategy_d) {
 
 	// scales ratings according to user's bias and counts up-votes
 	for (size_t i = 0; i < users.size(); ++i) {
@@ -428,7 +533,7 @@ float run_random(map<unsigned int, vector<Review*>> &test, int strategy) {
 	const unsigned int N = items.size();
 
 	// creating transition matrix
-	MatrixXf m = MatrixXf::Zero(N, N);
+	MatrixXd m = MatrixXd::Zero(N, N);
 
 	switch (strategy) {
 	case INTERSECTION_STRATEGY:
@@ -437,15 +542,20 @@ float run_random(map<unsigned int, vector<Review*>> &test, int strategy) {
 	case CLIQUE_STRATEGY:
 		make_matrix_clique(m, N);
 		break;
+	case GORI_STRATEGY:
+		make_matrix_gori(m, N);
+	default:
+		cout << "Error \t core strategy" << endl;
+		exit(0);
 	}
 	make_stochastic(m);
 
 	float macroDOA = 0;
 	map<unsigned int, vector<Review*>>::iterator it;
+
 	for (it = test.begin(); it != test.end(); ++it) {
 		User *u = users[userIds[it->first]];
-
-		VectorXf rank = random_walk(m, u);
+		VectorXd rank = random_walk(m, u, strategy_d);
 		macroDOA += doa(u, it->second, rank);
 	}
 	return macroDOA / users.size();
@@ -469,7 +579,7 @@ void clear() {
 
 }
 
-void kfold(char algorithm, char strategy = 0) {
+void kfold(char algorithm, int strategy = 0, int strategy_d = 0) {
 
 	float macroDOA[3][K_FOLD];
 
@@ -538,10 +648,15 @@ void kfold(char algorithm, char strategy = 0) {
 		case RANDOM_ALGORITHM:
 			switch (strategy) {
 			case CLIQUE_STRATEGY:
-				cout << run_random(test, CLIQUE_STRATEGY) << endl;
+				cout << run_random(test, CLIQUE_STRATEGY, strategy_d) << endl;
 				break;
 			case INTERSECTION_STRATEGY:
-				cout << run_random(test, INTERSECTION_STRATEGY) << endl;
+				cout << run_random(test, INTERSECTION_STRATEGY, strategy_d)
+						<< endl;
+				break;
+			case GORI_STRATEGY:
+				cout << run_random(test, GORI_STRATEGY, strategy_d) << endl;
+				break;
 			}
 		}
 
@@ -578,9 +693,14 @@ int main(int argc, char **argv) {
 	srand(0);
 
 	char* filename = argv[1];
+	if(1)
+		read_data2(filename);
+
+
 	K_FOLD = atoi(argv[2]);
 	int algorithm = atoi(argv[3]);
 	int strategy = atoi(argv[4]);
+	int strategy_d = atoi(argv[5]);
 
 	k_count.resize(K_FOLD, 0);
 
@@ -588,10 +708,10 @@ int main(int argc, char **argv) {
 
 	switch (algorithm) {
 	case GORI_ALGORITHM:
-		kfold(GORI_ALGORITHM, strategy);
+		kfold(GORI_ALGORITHM, strategy, strategy_d);
 		break;
 	case RANDOM_ALGORITHM:
-		kfold(RANDOM_ALGORITHM, strategy);
+		kfold(RANDOM_ALGORITHM, strategy, strategy_d);
 		break;
 	default:
 		cout << "error" << endl;
