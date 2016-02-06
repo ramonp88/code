@@ -2,7 +2,10 @@ import pandas as pd
 import numpy as np
 from sklearn.cross_validation import KFold
 
-filename = '/ramon/MEGAsync/prodgraph/code/RandomWalk/Debug/small.csv'
+#filename = '/ramon/MEGAsync/prodgraph/code/RandomWalk/Debug/small.csv'
+filename = '/ramon/MEGAsync/prodgraph/movielens/ml-latest-small/ratings.csv'
+
+############ CLEANING DATA SET
 
 def clean_data(ds, key, thres):
     v = ds.groupby(key).size()
@@ -10,12 +13,34 @@ def clean_data(ds, key, thres):
     idx = ds[key].isin(res)
     da = ds[idx]
     return da
+
+def reduce_dataset(ds, key, nkeep):
+    res = ds.groupby(key).size().sort_values(ascending=False)
+    idxs = ds[key].isin(res.keys()[:nkeep])
+    da = ds[idxs]
+    return da
+
+def do_reduction(filename):
+    ds = pd.read_csv(filename)
+    n = ds['movieId'].unique().size
+    reduced = reduce_dataset(ds, 'movieId', n/2)
+    reduced = clean_data(reduced, 'movieId', 5)
+    return reduced
+    
+'''
+reduced = do_reduction(filename)
+reduced.to_csv('reduced.csv', index=False, header=True)
+'''
+
+
+############################ ALGORITHM
     
 n_folds = 5
 alpha = 1e-6 #alpha distribuicao dirichlet
 p_rw = 0.8 #probabilidade de sucesso da distribuicao geometrica para tamanho random walk
 
 ds = pd.read_csv(filename)
+
 #aux = pd.read_csv('/home/ramon/MEGAsync/prodgraph/code/RandomWalk/Debug/small.csv')
 
 kf = KFold(ds.shape[0], n_folds, shuffle=True)
