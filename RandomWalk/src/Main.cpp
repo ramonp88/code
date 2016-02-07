@@ -15,6 +15,8 @@
 #include <stdlib.h>
 #include <iomanip>
 
+#include <ctime>
+
 #include <Eigen/Dense>
 
 #define DELIM ','
@@ -25,6 +27,9 @@
 #define BETA_alpha 1.0
 #define BETA_beta 1.0
 
+#define RANDOM_ALGORITHM 1
+#define GORI_ALGORITHM 2
+
 #define CLIQUE_STRATEGY 1
 #define INTERSECTION_STRATEGY 2
 #define GORI_STRATEGY 3
@@ -32,15 +37,14 @@
 #define BAYESIAN_d 1
 #define GORI_d 2
 
-#define RANDOM_ALGORITHM 1
-#define GORI_ALGORITHM 2
-
 #define sigmoid(x) (1/(1+exp(-x)))
 
 using namespace std;
 using namespace Eigen;
 
 unsigned int K_FOLD;
+vector<unsigned int> k_count;
+vector<unsigned int> topN;
 
 struct Item {
 	Item() :
@@ -97,8 +101,6 @@ map<unsigned int, unsigned int> rItemIds;
 
 map<unsigned int, unsigned int>::iterator it;
 
-vector<unsigned int> k_count;
-
 struct Gen {
 	Gen() :
 		n(K_FOLD) {
@@ -128,6 +130,36 @@ struct Gen {
 
 };
 typedef struct Gen Gen;
+
+struct Experiment {
+	Experiment(int n = 2) {
+		top.resize(n, 0);
+		precision.resize(n, 0);
+		recall.resize(n, 0);
+	}
+	vector<unsigned int> top;
+	double macro;
+	double micro;
+
+	vector<double> precision;
+	vector<double> recall;
+
+	void print() {
+		cout << macro << endl;
+		size_t n = top.size();
+		cout << n << endl;
+		for (size_t i = 0; i < n; ++i) {
+			cout << precision[i] << " ";
+		}
+		cout << endl;
+		for (size_t i = 0; i < n; ++i) {
+			cout << recall[i] << " ";
+		}
+		cout << endl;
+	}
+
+};
+typedef struct Experiment Experiment;
 
 int cmp(double x, double y, double tol = 1e-19) {
 	return (x <= y + tol) ? (x + tol < y) ? -1 : 0 : 1;
@@ -289,8 +321,9 @@ float doa(const User *u, const vector<Review*> &test, const VectorXd & rank) {
 		nw++;
 
 		for (size_t a = 0; a < test.size(); ++a) {
-			if(itemIds.find(test[a]->itemId) == itemIds.end()){
-				cout << "error: item test" << test[a]->itemId << " is not in training" << endl;
+			if (itemIds.find(test[a]->itemId) == itemIds.end()) {
+				cout << "error: item test" << test[a]->itemId
+						<< " is not in training" << endl;
 				exit(0);
 			}
 			unsigned int j = itemIds[test[a]->itemId];
@@ -307,12 +340,13 @@ bool rankComparator(const rankPair & l, const rankPair & r) {
 	return (cmp(l.first, r.first, 1e-9) < 0);
 }
 
-vector< vector<double> > getPrecisionRecall(const User *u, const vector<Review*> &test,
-		const VectorXd & rank, vector<unsigned int> kValues) {
+vector<vector<double> > getPrecisionRecall(const User *u,
+		const vector<Review*> &test, const VectorXd & rank,
+		vector<unsigned int> kValues) {
 
 	// precision index - 0
 	// recall index - 1
-	vector< vector<double> > result(2);
+	vector<vector<double> > result(2);
 	result[0].resize(kValues.size(), 0);
 	result[1].resize(kValues.size(), 0);
 
@@ -325,23 +359,22 @@ vector< vector<double> > getPrecisionRecall(const User *u, const vector<Review*>
 
 	// colocando itens do test no sets
 	set<int> uTest;
-	for(size_t i=0; i < test.size(); ++i){
+	for (size_t i = 0; i < test.size(); ++i) {
 		uTest.insert(itemIds[test[i]->itemId]);
 	}
 
-	for(size_t i=0; i < kValues.size(); ++i){
+	for (size_t i = 0; i < kValues.size(); ++i) {
 		const unsigned int k = kValues[i];
 
 		int count = 0;
-		for(size_t j=0; j < k; ++j){
-			if(uTest.find(uRank[j].second) != uTest.end()){
+		for (size_t j = 0; j < k; ++j) {
+			if (uTest.find(uRank[j].second) != uTest.end()) {
 				count++;
 			}
 		}
 
-
-		result[0][i] = ((double) count)/k; //precision
-		result[1][i] = ((double) count)/uTest.size(); //recall
+		result[0][i] = ((double) count) / k; //precision
+		result[1][i] = ((double) count) / uTest.size(); //recall
 	}
 	return result;
 }
@@ -393,7 +426,9 @@ void make_matrix_gori(MatrixXd &m, const unsigned int N) {
 	}
 }
 
-float run_gori(map<unsigned int, vector<Review*>> &test) {
+Experiment run_gori(map<unsigned int, vector<Review*>> &test) {
+
+	Experiment result;
 
 	// creating matrix
 	const unsigned int N = items.size();
@@ -411,8 +446,23 @@ float run_gori(map<unsigned int, vector<Review*>> &test) {
 		VectorXd rank = gori_pucci(m, u);
 
 		macroDOA += doa(u, it->second, rank);
+
+		vector<vector<double> > pr = getPrecisionRecall(u, it->second, rank,
+				topN);
+
+		for (size_t j = 0; j < topN.size(); ++j) {
+			result.precision[j] += pr[0][j];
+			result.recall[j] += pr[1][j];
+		}
 	}
-	return macroDOA / users.size();
+	for (size_t j = 0; j < topN.size(); ++j) {
+		result.precision[j] /= test.size();
+		result.recall[j] /= test.size();
+	}
+
+	result.macro = macroDOA / users.size();
+	return result;
+
 }
 
 bool check_d(User *u, MatrixXd &m, unsigned itemId) {
@@ -466,16 +516,6 @@ VectorXd random_walk(MatrixXd &m, User* u, int strategy_d) {
 		cout << "Error \t strategy-d" << endl;
 		exit(0);
 	}
-	/*for (unsigned int i = 0; i < N; ++i) {
-	 Item *p = items[i];
-
-	 if (check_d(u, m, p->id)) {
-	 // bayesian trust
-	 d(p->id) = (BETA_alpha + p->nUps + 1) / (BETA_alpha + BETA_beta
-	 + p->nRatings + 1);
-	 sum += d(p->id);
-	 }
-	 }*/
 
 	// ###### RANDOM WALK
 	VectorXd last_v;
@@ -506,9 +546,9 @@ void make_matrix_intersection(MatrixXd &m, const unsigned int N) {
 			Item *j = items[b];
 
 			//tansition
-			float i_ratio = ((float) i->nUps) / (i->nRatings - i->nUps);
+			float i_ratio = ((float) i->nUps) / (i->nRatings - i->nUps + 1);
 
-			float j_ratio = ((float) j->nUps) / (j->nRatings - j->nUps);
+			float j_ratio = ((float) j->nUps) / (j->nRatings - j->nUps + 1);
 
 			vector<int> v = take_intersection(i->users, j->users);
 			if (v.size() > 0) {
@@ -522,7 +562,7 @@ void make_matrix_intersection(MatrixXd &m, const unsigned int N) {
 
 				float ratio = ((float) countUps) / (v.size() + 1);
 				//				cout << i->id << " " << j->id << " " << v.size() << " "
-				//						<< ratio << endl;
+				//						<< ratio << " " << i_ratio << " " << j_ratio << endl;
 				m(j->id, i->id) = m(i->id, j->id) = ratio
 						* sigmoid(i_ratio / j_ratio);
 			}
@@ -540,10 +580,10 @@ void make_matrix_clique(MatrixXd &m, const unsigned int N) {
 
 				//tansition
 				float i_ratio = ((float) items[i]->nUps) / (items[i]->nRatings
-						- items[i]->nUps);
+						- items[i]->nUps + 1);
 
 				float j_ratio = ((float) items[j]->nUps) / (items[j]->nRatings
-						- items[j]->nUps);
+						- items[j]->nUps + 1);
 
 				m(i, j) = i_ratio / j_ratio;
 				m(j, i) = 1 / m(i, j);
@@ -552,8 +592,10 @@ void make_matrix_clique(MatrixXd &m, const unsigned int N) {
 	}
 }
 
-float run_random(map<unsigned int, vector<Review*>> &test, int strategy,
+Experiment run_random(map<unsigned int, vector<Review*>> &test, int strategy,
 		int strategy_d) {
+
+	Experiment result;
 
 	// scales ratings according to user's bias and counts up-votes
 	for (size_t i = 0; i < users.size(); ++i) {
@@ -577,6 +619,7 @@ float run_random(map<unsigned int, vector<Review*>> &test, int strategy,
 	// creating transition matrix
 	MatrixXd m = MatrixXd::Zero(N, N);
 
+	clock_t begin = clock();
 	switch (strategy) {
 	case INTERSECTION_STRATEGY:
 		make_matrix_intersection(m, N);
@@ -590,6 +633,10 @@ float run_random(map<unsigned int, vector<Review*>> &test, int strategy,
 		cout << "Error \t core strategy" << endl;
 		exit(0);
 	}
+	clock_t end = clock();
+	double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
+	cout << elapsed_secs << endl;
+
 	make_stochastic(m);
 
 	float macroDOA = 0;
@@ -599,8 +646,22 @@ float run_random(map<unsigned int, vector<Review*>> &test, int strategy,
 		User *u = users[userIds[it->first]];
 		VectorXd rank = random_walk(m, u, strategy_d);
 		macroDOA += doa(u, it->second, rank);
+
+		vector<vector<double> > pr = getPrecisionRecall(u, it->second, rank,
+				topN);
+
+		for (size_t j = 0; j < topN.size(); ++j) {
+			result.precision[j] += pr[0][j];
+			result.recall[j] += pr[1][j];
+		}
 	}
-	return macroDOA / users.size();
+	for (size_t j = 0; j < topN.size(); ++j) {
+		result.precision[j] /= test.size();
+		result.recall[j] /= test.size();
+	}
+
+	result.macro = macroDOA / users.size();
+	return result;
 }
 
 void clear() {
@@ -624,7 +685,7 @@ void clear() {
 void kfold(char algorithm, int strategy = 0, int strategy_d = 0) {
 
 	for (unsigned int k = 0; k < K_FOLD; ++k) {
-		cout << "####K=" << k << endl;
+		cout << "#K=" << k << endl;
 
 		map<unsigned int, vector<Review*>> test; // key is  real user id in dataset
 
@@ -681,25 +742,26 @@ void kfold(char algorithm, int strategy = 0, int strategy_d = 0) {
 			sort(p->users.begin(), p->users.end());
 		}
 
+		Experiment result;
 		switch (algorithm) {
 		case GORI_ALGORITHM:
-			cout << run_gori(test) << endl;
+			result = run_gori(test);
 			break;
 		case RANDOM_ALGORITHM:
 			switch (strategy) {
 			case CLIQUE_STRATEGY:
-				cout << run_random(test, CLIQUE_STRATEGY, strategy_d) << endl;
+				result = run_random(test, CLIQUE_STRATEGY, strategy_d);
 				break;
 			case INTERSECTION_STRATEGY:
-				cout << run_random(test, INTERSECTION_STRATEGY, strategy_d)
-						<< endl;
+				result = run_random(test, INTERSECTION_STRATEGY, strategy_d);
 				break;
 			case GORI_STRATEGY:
-				cout << run_random(test, GORI_STRATEGY, strategy_d) << endl;
+				result = run_random(test, GORI_STRATEGY, strategy_d);
 				break;
 			}
 		}
 
+		result.print();
 		//#pragma omp parallel sections
 		//		{
 		//			{
@@ -727,14 +789,19 @@ void kfold(char algorithm, int strategy = 0, int strategy_d = 0) {
  * 2- number of folds of k-fold
  * 3- algorithm to run
  * 4- strategy chosen to run random-walk
+ * 5- strategy chosen to build graph
  */
 
 int main(int argc, char **argv) {
 	srand(0);
 
+	topN.push_back(1);
+	topN.push_back(5);
+	topN.push_back(10);
+
 	char* filename = argv[1];
-	if (1)
-		read_data2(filename);
+	//	if (1)
+	//		read_data2(filename);
 
 	K_FOLD = atoi(argv[2]);
 	int algorithm = atoi(argv[3]);
