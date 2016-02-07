@@ -152,7 +152,6 @@ vector<int> take_intersection(vector<int> &x, vector<int> &y) {
 	return intersection;
 }
 
-
 void read_data2(const char* filename) {
 
 	Gen generator;
@@ -167,7 +166,7 @@ void read_data2(const char* filename) {
 	getline(file, line); // reading header
 
 
-	map<unsigned int, vector<int>  > m;
+	map<unsigned int, vector<int> > m;
 	vector<unsigned int> movies;
 
 	while (getline(file, line)) {
@@ -183,31 +182,28 @@ void read_data2(const char* filename) {
 		getline(ss, tok, DELIM);
 		rating = atof(tok.c_str());
 
-
 		m[itemId].push_back(userId);
 
 		movies.push_back(itemId);
 	}
 
-	for(size_t i=0; i < movies.size(); ++i){
+	for (size_t i = 0; i < movies.size(); ++i) {
 		unsigned int id = movies[i];
 		sort(m[id].begin(), m[id].end());
 	}
 
-	for(size_t i=0; i < movies.size(); ++i){
+	for (size_t i = 0; i < movies.size(); ++i) {
 		unsigned int iId = movies[i];
 
-		for(size_t j=i+1; j < movies.size(); ++j){
+		for (size_t j = i + 1; j < movies.size(); ++j) {
 			unsigned int jId = movies[j];
-			if(take_intersection(m[iId], m[jId]).size() > 0){
+			if (take_intersection(m[iId], m[jId]).size() > 0) {
 				cout << iId << "," << jId << endl;
 			}
 		}
 	}
 
-
 }
-
 
 void read_data(const char* filename) {
 
@@ -265,8 +261,6 @@ void make_stochastic(MatrixXd & m) {
 	}
 }
 
-
-
 // scales user rating so that 1 if above user average or 0 otherwise
 void scaleRating(User *u) {
 	float avg = 0;
@@ -295,6 +289,10 @@ float doa(const User *u, const vector<Review*> &test, const VectorXd & rank) {
 		nw++;
 
 		for (size_t a = 0; a < test.size(); ++a) {
+			if(itemIds.find(test[a]->itemId) == itemIds.end()){
+				cout << "error: item test" << test[a]->itemId << " is not in training" << endl;
+				exit(0);
+			}
 			unsigned int j = itemIds[test[a]->itemId];
 			if (cmp(rank(j), rank(k), EPS) >= 0) {
 				count++;
@@ -302,6 +300,50 @@ float doa(const User *u, const vector<Review*> &test, const VectorXd & rank) {
 		}
 	}
 	return ((float) count) / (test.size() * nw);
+}
+
+typedef std::pair<double, int> rankPair;
+bool rankComparator(const rankPair & l, const rankPair & r) {
+	return (cmp(l.first, r.first, 1e-9) < 0);
+}
+
+vector< vector<double> > getPrecisionRecall(const User *u, const vector<Review*> &test,
+		const VectorXd & rank, vector<unsigned int> kValues) {
+
+	// precision index - 0
+	// recall index - 1
+	vector< vector<double> > result(2);
+	result[0].resize(kValues.size(), 0);
+	result[1].resize(kValues.size(), 0);
+
+	// construindo novo rank
+	vector<pair<double, int> > uRank;
+	for (size_t i = 0; i < items.size(); ++i) {
+		uRank.push_back(make_pair(rank[i], i));
+	}
+	sort(uRank.begin(), uRank.end(), rankComparator);
+
+	// colocando itens do test no sets
+	set<int> uTest;
+	for(size_t i=0; i < test.size(); ++i){
+		uTest.insert(itemIds[test[i]->itemId]);
+	}
+
+	for(size_t i=0; i < kValues.size(); ++i){
+		const unsigned int k = kValues[i];
+
+		int count = 0;
+		for(size_t j=0; j < k; ++j){
+			if(uTest.find(uRank[j].second) != uTest.end()){
+				count++;
+			}
+		}
+
+
+		result[0][i] = ((double) count)/k; //precision
+		result[1][i] = ((double) count)/uTest.size(); //recall
+	}
+	return result;
 }
 
 VectorXd gori_pucci(MatrixXd &m, User *u) {
@@ -445,7 +487,7 @@ VectorXd random_walk(MatrixXd &m, User* u, int strategy_d) {
 		unsigned int itemId = u->ratings[i]->itemId;
 		v(itemId) = 1;
 	}
-	v = (1.0/u->ratings.size())*v;
+	v = (1.0 / u->ratings.size()) * v;
 
 	double norm2 = 0.0;
 	do {
@@ -581,8 +623,6 @@ void clear() {
 
 void kfold(char algorithm, int strategy = 0, int strategy_d = 0) {
 
-	float macroDOA[3][K_FOLD];
-
 	for (unsigned int k = 0; k < K_FOLD; ++k) {
 		cout << "####K=" << k << endl;
 
@@ -693,9 +733,8 @@ int main(int argc, char **argv) {
 	srand(0);
 
 	char* filename = argv[1];
-	if(1)
+	if (1)
 		read_data2(filename);
-
 
 	K_FOLD = atoi(argv[2]);
 	int algorithm = atoi(argv[3]);

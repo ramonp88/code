@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 from sklearn.cross_validation import KFold
 
-#filename = '/ramon/MEGAsync/prodgraph/code/RandomWalk/Debug/small.csv'
-filename = '/ramon/MEGAsync/prodgraph/movielens/ml-latest-small/ratings.csv'
+# filename = '/ramon/MEGAsync/prodgraph/code/RandomWalk/Debug/small.csv'
+filename = '/ramon/MEGAsync/prodgraph/movielens/reduced.csv'
 
 ############ CLEANING DATA SET
 
@@ -23,32 +23,33 @@ def reduce_dataset(ds, key, nkeep):
 def do_reduction(filename):
     ds = pd.read_csv(filename)
     n = ds['movieId'].unique().size
-    reduced = reduce_dataset(ds, 'movieId', n/2)
+    reduced = reduce_dataset(ds, 'movieId', n / 2)
     reduced = clean_data(reduced, 'movieId', 5)
     return reduced
     
-'''
+"""
 reduced = do_reduction(filename)
 reduced.to_csv('reduced.csv', index=False, header=True)
-'''
+"""
 
 
 ############################ ALGORITHM
     
 n_folds = 5
-alpha = 1e-6 #alpha distribuicao dirichlet
-p_rw = 0.8 #probabilidade de sucesso da distribuicao geometrica para tamanho random walk
+alpha = 1e-6  # alpha distribuicao dirichlet
+p_rw = 0.8  # probabilidade de sucesso da distribuicao geometrica para tamanho random walk
 
 ds = pd.read_csv(filename)
 
-#aux = pd.read_csv('/home/ramon/MEGAsync/prodgraph/code/RandomWalk/Debug/small.csv')
+# aux = pd.read_csv('/home/ramon/MEGAsync/prodgraph/code/RandomWalk/Debug/small.csv')
 
 kf = KFold(ds.shape[0], n_folds, shuffle=True)
 for train, test in kf:
-    df = ds.iloc[train,:]
-    aux = ds.iloc[train,:]
-
-    ## substituindo notas por escala inteira de 1 - max
+    df = ds.iloc[train, :]
+    aux = df.copy()
+   
+   
+    #substituindo notas por escala inteira de 1 - max
     c = 0
     for i in sorted(aux['rating'].unique()):
         df.loc[aux['rating'] == i,'rating'] = c
@@ -81,6 +82,8 @@ for train, test in kf:
 
     ## criando lista de vizinhanca
     import time
+    print("start")
+    print(nmovies)
     start_time = time.time()
     m = [[] for i in range(nmovies)]
     for i in range(nmovies):
@@ -93,7 +96,9 @@ for train, test in kf:
 
     elapsed_time = time.time()-start_time
     print(elapsed_time)
-    break
+    if(True):
+        np.save('matrix.npy', m)
+        break
 
     u = 1
     u_prod = df.loc[df['userId'] == u]
@@ -118,7 +123,7 @@ for train, test in kf:
                         p = j
                 rw.append(p)
             walks.append(rw)
-'''
+"""
 grouped = ds.groupby('movieId')['rating']
 #grouped.size()
 for name,group in grouped:
@@ -126,4 +131,4 @@ for name,group in grouped:
     print(group)
     group.size()
     break
-'''
+"""
